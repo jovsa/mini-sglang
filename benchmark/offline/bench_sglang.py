@@ -1,33 +1,34 @@
 # Adapted from: https://github.com/GeeeekExplorer/nano-vllm/blob/main/bench.py
 # SGLang version of bench.py
 
-import hashlib
-import json
+import argparse
 import time
 from random import randint, seed
 
 import sglang as sgl
 
 
-def compute_checksum(data):
-    """Compute SHA256 checksum of serialized data."""
-    if isinstance(data, (list, dict)):
-        serialized = json.dumps(data, sort_keys=True).encode()
-    else:
-        serialized = str(data).encode()
-    return hashlib.sha256(serialized).hexdigest()
-
-
 def main():
-    seed(0)
-    num_seqs = 256
-    max_input_len = 1024
-    max_ouput_len = 1024
+    parser = argparse.ArgumentParser(description="SGLang offline benchmark")
+    parser.add_argument("--num-seqs", type=int, default=256, help="Number of sequences")
+    parser.add_argument("--max-input-len", type=int, default=1024, help="Maximum input length")
+    parser.add_argument("--max-output-len", type=int, default=1024, help="Maximum output length")
+    parser.add_argument("--model-path", type=str, default="Qwen/Qwen3-0.6B", help="Model path")
+    parser.add_argument("--max-seq-len-override", type=int, default=4096, help="Max sequence length override")
+    parser.add_argument("--max-extend-tokens", type=int, default=16384, help="Max extend tokens")
+    parser.add_argument("--cuda-graph-max-bs", type=int, default=256, help="CUDA graph max batch size (not used in SGLang)")
+    parser.add_argument("--seed", type=int, default=0, help="Random seed")
+    args = parser.parse_args()
+
+    seed(args.seed)
+    num_seqs = args.num_seqs
+    max_input_len = args.max_input_len
+    max_ouput_len = args.max_output_len
 
     # Model configuration - align with bench.py
-    model_path = "Qwen/Qwen3-0.6B"
-    max_model_len = 4096  # equivalent to max_seq_len_override=4096
-    max_num_batched_tokens = 16384  # equivalent to max_extend_tokens=16384
+    model_path = args.model_path
+    max_model_len = args.max_seq_len_override  # equivalent to max_seq_len_override
+    max_num_batched_tokens = args.max_extend_tokens  # equivalent to max_extend_tokens
     # Note: cuda_graph_max_bs may not have direct equivalent in sglang
 
     # align the hyperparameters
@@ -46,31 +47,6 @@ def main():
         {"temperature": 0.6, "ignore_eos": True, "max_new_tokens": randint(100, max_ouput_len)}
         for _ in range(num_seqs)
     ]
-
-    # Compute checksums for verification
-    input_checksum = compute_checksum(prompt_token_ids)
-    # Normalize sampling params for checksum (use max_tokens instead of max_new_tokens)
-    sampling_params_normalized = [
-        {"temperature": sp["temperature"], "ignore_eos": sp["ignore_eos"], "max_tokens": sp["max_new_tokens"]}
-        for sp in sampling_params_list
-    ]
-    sampling_checksum = compute_checksum(sampling_params_normalized)
-    # Config checksum uses normalized names for comparison with bench.py
-    # max_model_len (sglang) = max_seq_len_override (mini-sglang)
-    # max_num_batched_tokens (sglang) = max_extend_tokens (mini-sglang)
-    config_data = {
-        "model_path": model_path,
-        "max_seq_len": max_model_len,  # normalized name
-        "max_extend_tokens": max_num_batched_tokens,  # normalized name
-        "num_seqs": num_seqs,
-        "max_input_len": max_input_len,
-        "max_output_len": max_ouput_len,
-    }
-    config_checksum = compute_checksum(config_data)
-
-    print(f"Input token IDs checksum: {input_checksum}")
-    print(f"Sampling params checksum: {sampling_checksum}")
-    print(f"Config checksum: {config_checksum}")
 
     # Warmup - to warm up flashinfer (matching bench.py)
     # Use a simple token ID sequence for warmup
@@ -99,7 +75,7 @@ def main():
 
     total_tokens = sum(sp["max_new_tokens"] for sp in sampling_params_list)
     throughput = total_tokens / t
-    print(f"Total: {total_tokens}tok, Time: {t:.2f}s, Throughput: {throughput:.2f}tok/s")
+    print(f"SGLANG:  Total: {total_tokens:6d}tok, Time: {t:6.2f}s, Throughput: {throughput:8.2f}tok/s")
 
     llm.shutdown()
 

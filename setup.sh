@@ -17,8 +17,8 @@ source .venv/bin/activate
 # Install the package in editable mode
 uv pip install -e .
 
-# Install pybase64
-uv pip install pybase64
+# # Install pybase64
+# uv pip install pybase64
 
 # Reinstall sglang with [all] extras to get all optional dependencies
 # This includes uvloop, sentencepiece, and other required packages
