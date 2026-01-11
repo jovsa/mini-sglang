@@ -4,7 +4,7 @@
 #
 # Usage Examples:
 #   Run with a specific config:
-#     ./run_bench.sh --configs "tiny:16:128:128"
+#     ./run_bench.sh --configs "tiny:2:2:5"
 #
 #   Run with multiple specific configs:
 #     ./run_bench.sh --configs "tiny:16:128:128" "small:64:512:512"
@@ -28,7 +28,6 @@ MAX_SEQ_LEN_OVERRIDE=4096
 MAX_EXTEND_TOKENS=16384
 CUDA_GRAPH_MAX_BS=256
 SEED=0
-VERBOSE=false
 USE_MULTI_CONFIG=false
 BENCH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$BENCH_DIR/../.." && pwd)"
@@ -50,7 +49,6 @@ DEFAULT_CONFIGS=(
 CONFIGS=()
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --verbose|-v) VERBOSE=true; shift ;;
         --multi-config|--configs)
             USE_MULTI_CONFIG=true
             shift
@@ -61,17 +59,15 @@ while [[ $# -gt 0 ]]; do
             done
             ;;
         --help|-h)
-            echo "Usage: $0 [--configs CONFIG1 CONFIG2 ...] [--multi-config] [--verbose]"
+            echo "Usage: $0 [--configs CONFIG1 CONFIG2 ...] [--multi-config]"
             echo ""
             echo "Options:"
             echo "  --configs, --multi-config      Run with configurations (see DEFAULT_CONFIGS in script)"
-            echo "  --verbose, -v                  Show detailed metrics"
             echo "  --help, -h                     Show this help message"
             echo ""
             echo "Examples:"
-            echo "  $0 --configs \"tiny:16:128:128\"               # Run a specific config"
+            echo "  $0 --configs \"tiny:2:5:5\"               # Run a specific config"
             echo "  $0 --multi-config                    # Run ALL default configs"
-            echo "  $0 --configs \"tiny:16:128:128\" --verbose   # Run with verbose output"
             exit 0
             ;;
         *) echo "Unknown option: $1"; echo "Use --help for usage information"; exit 1 ;;
@@ -92,6 +88,9 @@ if [ -d "$PROJECT_ROOT/.venv" ]; then
     source "$PROJECT_ROOT/.venv/bin/activate"
 fi
 
+# Set PYTHONPATH to include the python directory for minisgl imports
+export PYTHONPATH="$PROJECT_ROOT/python:$PYTHONPATH"
+
 # Function to run a single benchmark configuration
 run_single_bench() {
     local config_name="$1"
@@ -99,11 +98,8 @@ run_single_bench() {
     local max_input_len="$3"
     local max_output_len="$4"
 
-    # Build common arguments
-    local common_args=(--num-seqs "$num_seqs" --max-input-len "$max_input_len" --max-output-len "$max_output_len" --model-path "$MODEL_PATH" --max-seq-len-override "$MAX_SEQ_LEN_OVERRIDE" --max-extend-tokens "$MAX_EXTEND_TOKENS" --cuda-graph-max-bs "$CUDA_GRAPH_MAX_BS" --seed "$SEED")
-    if [ "$VERBOSE" = true ]; then
-        common_args+=(--verbose)
-    fi
+    # Build common arguments (always use verbose output)
+    local common_args=(--num-seqs "$num_seqs" --max-input-len "$max_input_len" --max-output-len "$max_output_len" --model-path "$MODEL_PATH" --max-seq-len-override "$MAX_SEQ_LEN_OVERRIDE" --max-extend-tokens "$MAX_EXTEND_TOKENS" --cuda-graph-max-bs "$CUDA_GRAPH_MAX_BS" --seed "$SEED" --verbose)
 
     # Print configuration
     echo ""
@@ -128,12 +124,18 @@ run_single_bench() {
     # Run mini-sglang benchmark
     echo "Running Mini-SGLang benchmark..."
     cd "$PROJECT_ROOT"
+    set +e  # Temporarily disable exit on error to capture output even on failure
     local minisgl_output=$(python "$BENCH_DIR/bench.py" "${common_args[@]}" 2>&1)
+    local minisgl_exit=$?
+    set -e  # Re-enable exit on error
     local minisgl_line=$(echo "$minisgl_output" | grep "^MINISGL:" || true)
 
     # Run sglang benchmark
     echo "Running SGLang benchmark..."
+    set +e  # Temporarily disable exit on error to capture output even on failure
     local sglang_output=$(python "$BENCH_DIR/bench_sglang.py" "${common_args[@]}" 2>&1)
+    local sglang_exit=$?
+    set -e  # Re-enable exit on error
     local sglang_line=$(echo "$sglang_output" | grep "^SGLANG:" || true)
 
     # Print aligned results
