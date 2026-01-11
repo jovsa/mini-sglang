@@ -2,10 +2,17 @@
 # SGLang version of bench.py
 
 import argparse
+import sys
 import time
+from pathlib import Path
 from random import randint, seed
 
 import sglang as sgl
+
+# Add benchmark directory to path to import metrics module
+BENCH_DIR = Path(__file__).parent
+sys.path.insert(0, str(BENCH_DIR))
+from metrics import BenchmarkMetrics, collect_metrics, format_output
 
 
 def main():
@@ -18,6 +25,7 @@ def main():
     parser.add_argument("--max-extend-tokens", type=int, default=16384, help="Max extend tokens")
     parser.add_argument("--cuda-graph-max-bs", type=int, default=256, help="CUDA graph max batch size (not used in SGLang)")
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Show detailed metrics")
     args = parser.parse_args()
 
     seed(args.seed)
@@ -48,6 +56,10 @@ def main():
         for _ in range(num_seqs)
     ]
 
+    # Collect input/output lengths for metrics
+    input_lengths = [len(ids) for ids in prompt_token_ids]
+    output_lengths = [sp["max_new_tokens"] for sp in sampling_params_list]
+
     # Warmup - to warm up flashinfer (matching bench.py)
     # Use a simple token ID sequence for warmup
     llm.generate(
@@ -73,9 +85,57 @@ def main():
             results.append(result)
     t = time.time() - t
 
-    total_tokens = sum(sp["max_new_tokens"] for sp in sampling_params_list)
-    throughput = total_tokens / t
-    print(f"SGLANG:  Total: {total_tokens:6d}tok, Time: {t:6.2f}s, Throughput: {throughput:8.2f}tok/s")
+    # Extract actual output token counts from results
+    # SGLang results format may vary - try to extract token counts
+    actual_output_lengths = []
+    if isinstance(results, list):
+        for result in results:
+            # Try different possible result formats
+            if isinstance(result, dict):
+                # Check for common keys
+                if "output_ids" in result:
+                    actual_output_lengths.append(len(result["output_ids"]))
+                elif "token_ids" in result:
+                    actual_output_lengths.append(len(result["token_ids"]))
+                elif "text" in result:
+                    # Estimate from text length (rough approximation)
+                    # This is not ideal but works if token_ids not available
+                    actual_output_lengths.append(len(result["text"].split()))
+                else:
+                    # Fallback: use requested length
+                    actual_output_lengths.append(None)
+            elif hasattr(result, "output_ids"):
+                actual_output_lengths.append(len(result.output_ids))
+            elif hasattr(result, "token_ids"):
+                actual_output_lengths.append(len(result.token_ids))
+            else:
+                # Unknown format, use requested length
+                actual_output_lengths.append(None)
+    else:
+        # Results not in expected format, use requested lengths
+        actual_output_lengths = None
+
+    # Filter out None values if we have some actual lengths
+    if actual_output_lengths and all(x is not None for x in actual_output_lengths):
+        total_tokens = sum(actual_output_lengths)
+    else:
+        # Fallback to requested tokens
+        total_tokens = sum(sp["max_new_tokens"] for sp in sampling_params_list)
+        actual_output_lengths = None
+
+    # Collect metrics
+    metrics = collect_metrics(
+        total_tokens=total_tokens,
+        total_time=t,
+        num_requests=num_seqs,
+        input_lengths=input_lengths,
+        output_lengths=output_lengths,
+        actual_output_lengths=actual_output_lengths,
+    )
+
+    # Format and print output
+    output = format_output(metrics, prefix="SGLANG:  ", verbose=args.verbose)
+    print(output)
 
     llm.shutdown()
 

@@ -1,11 +1,18 @@
 # Adapted from: https://github.com/GeeeekExplorer/nano-vllm/blob/main/bench.py
 
 import argparse
+import sys
 import time
+from pathlib import Path
 from random import randint, seed
 
 from minisgl.core import SamplingParams
 from minisgl.llm import LLM
+
+# Add benchmark directory to path to import metrics module
+BENCH_DIR = Path(__file__).parent
+sys.path.insert(0, str(BENCH_DIR))
+from metrics import BenchmarkMetrics, collect_metrics, format_output
 
 
 def main():
@@ -18,6 +25,7 @@ def main():
     parser.add_argument("--max-extend-tokens", type=int, default=16384, help="Max extend tokens")
     parser.add_argument("--cuda-graph-max-bs", type=int, default=256, help="CUDA graph max batch size")
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Show detailed metrics")
     args = parser.parse_args()
 
     seed(args.seed)
@@ -43,13 +51,35 @@ def main():
         SamplingParams(temperature=0.6, ignore_eos=True, max_tokens=randint(100, max_ouput_len))
         for _ in range(num_seqs)
     ]
+
+    # Collect input/output lengths for metrics
+    input_lengths = [len(ids) for ids in prompt_token_ids]
+    output_lengths = [sp.max_tokens for sp in sampling_params]
+
     llm.generate(["Benchmark: "], SamplingParams(temperature=0.1))  # to warm up flashinfer
+
+    # Run benchmark
     t = time.time()
-    llm.generate(prompt_token_ids, sampling_params)
+    results = llm.generate(prompt_token_ids, sampling_params)
     t = time.time() - t
-    total_tokens = sum(sp.max_tokens for sp in sampling_params)
-    throughput = total_tokens / t
-    print(f"MINISGL: Total: {total_tokens:6d}tok, Time: {t:6.2f}s, Throughput: {throughput:8.2f}tok/s")
+
+    # Extract actual output token counts from results
+    actual_output_lengths = [len(result.get("token_ids", [])) for result in results]
+    total_tokens = sum(actual_output_lengths)
+
+    # Collect metrics
+    metrics = collect_metrics(
+        total_tokens=total_tokens,
+        total_time=t,
+        num_requests=num_seqs,
+        input_lengths=input_lengths,
+        output_lengths=output_lengths,
+        actual_output_lengths=actual_output_lengths,
+    )
+
+    # Format and print output
+    output = format_output(metrics, prefix="MINISGL:", verbose=args.verbose)
+    print(output)
 
 
 if __name__ == "__main__":
