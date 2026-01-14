@@ -1,3 +1,21 @@
+"""
+Benchmark script for online inference testing.
+
+Usage:
+    1. Start the Mini-SGLang server (in one terminal):
+       cd /workspace/mini-sglang
+       source .venv/bin/activate
+       python -m minisgl --model "Qwen/Qwen3-0.6B" --port 1919
+
+    2. Run this benchmark script (in another terminal):
+       cd /workspace/mini-sglang
+       source .venv/bin/activate
+       PYTHONPATH=python:$PYTHONPATH python benchmark/online/bench_simple.py
+
+    Or as a single command:
+       cd /workspace/mini-sglang && source .venv/bin/activate && PYTHONPATH=python:$PYTHONPATH python benchmark/online/bench_simple.py
+"""
+
 import asyncio
 import random
 import sys
