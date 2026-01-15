@@ -1,0 +1,84 @@
+"""
+PUZZLE 2.1: Predict Sampling Behavior - [Easy]
+
+TASK:
+Predict and understand how different sampling parameters affect output.
+
+GIVEN:
+- Same prompt with different sampling parameters
+- Understanding of temperature, top_k, top_p
+
+CHALLENGE:
+- Predict which configuration will be most deterministic
+- Predict which will be most diverse
+- Understand the interaction between parameters
+
+HINT:
+- temperature=0.0 → deterministic (greedy)
+- temperature>0.0 → more random
+- top_k limits vocabulary size
+- top_p uses cumulative probability
+
+QUESTIONS:
+1. Which will be most deterministic: temp=0.0 or temp=0.7?
+2. What's the difference between top_k=1 and top_k=10?
+3. How does top_p interact with temperature?
+
+TEST:
+Run: pytest learning/puzzles/02_simple_llm/test_2.1.py -v
+"""
+
+import sys
+from pathlib import Path
+# Add parent directory to path to import from other puzzles
+sys.path.insert(0, str(Path(__file__).parent.parent / "01_core_structures"))
+from puzzle_1_1 import create_sampling_params, SamplingParams
+
+
+def predict_sampling_behavior(params: SamplingParams) -> dict:
+    """
+    Predict the behavior of sampling parameters.
+
+    Returns a dictionary with predictions:
+    - "deterministic": bool - Will output be deterministic?
+    - "diversity": str - "low", "medium", "high"
+    - "vocab_size": str - "full", "limited", "very_limited"
+
+    TODO: Implement this function to analyze sampling parameters
+    """
+    result = {
+        "deterministic": False,  # TODO: Determine if params.is_greedy
+        "diversity": "medium",    # TODO: Predict based on temperature
+        "vocab_size": "full",    # TODO: Predict based on top_k and top_p
+    }
+
+    # YOUR CODE HERE
+
+    return result
+
+
+def compare_sampling_configs() -> dict:
+    """
+    Compare different sampling configurations.
+
+    Returns a dictionary mapping config name to behavior prediction.
+    """
+    configs = {
+        "greedy": create_sampling_params(temperature=0.0, top_k=1, top_p=1.0),
+        "creative": create_sampling_params(temperature=1.0, top_k=50, top_p=0.9),
+        "balanced": create_sampling_params(temperature=0.7, top_k=10, top_p=0.95),
+        "focused": create_sampling_params(temperature=0.3, top_k=5, top_p=0.8),
+    }
+
+    results = {}
+    for name, params in configs.items():
+        results[name] = predict_sampling_behavior(params)
+
+    return results
+
+
+# Test your predictions
+if __name__ == "__main__":
+    results = compare_sampling_configs()
+    for name, behavior in results.items():
+        print(f"{name}: {behavior}")
