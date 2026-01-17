@@ -29,10 +29,17 @@ Run: pytest learning/puzzles/02_simple_llm/test_2.1.py -v
 """
 
 import sys
+import importlib.util
 from pathlib import Path
-# Add parent directory to path to import from other puzzles
-sys.path.insert(0, str(Path(__file__).parent.parent / "01_core_structures"))
-from puzzle_1_1 import create_sampling_params, SamplingParams
+
+# Import puzzle_1.1 using importlib (module name has dot)
+puzzle_dir = Path(__file__).parent.parent / "01_core_structures"
+puzzle_1_1_file = puzzle_dir / "puzzle_1.1.py"
+spec = importlib.util.spec_from_file_location("puzzle_1_1", puzzle_1_1_file)
+puzzle_1_1 = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(puzzle_1_1)
+create_sampling_params = puzzle_1_1.create_sampling_params
+SamplingParams = puzzle_1_1.SamplingParams
 
 
 def predict_sampling_behavior(params: SamplingParams) -> dict:

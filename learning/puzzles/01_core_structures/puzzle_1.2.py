@@ -14,10 +14,10 @@ CHALLENGE:
 - Understand the relationship between cached_len, device_len, and max_device_len
 
 HINT:
-- Read python/minisgl/core.py lines 27-66, especially __post_init__
-- cached_len should be less than device_len
-- device_len should be less than or equal to max_device_len
-- cached_len should be >= 0
+- Reference: `python/minisgl/core.py:37-41` for __post_init__ validation
+- The validation assertion is: `0 <= cached_len < device_len <= max_device_len`
+- device_len = len(input_ids)
+- max_device_len = len(input_ids) + output_len
 
 QUESTIONS:
 1. What happens if cached_len >= device_len? Why is this invalid?
@@ -116,9 +116,17 @@ def create_req(
         table_idx: Table index for this request
     """
     import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent))
-from puzzle_1_1 import create_sampling_params
+    import importlib.util
+    from pathlib import Path
+    puzzle_dir = Path(__file__).parent
+    sys.path.insert(0, str(puzzle_dir))
+
+    # Import puzzle file with dot in name using importlib
+    puzzle_1_1_file = puzzle_dir / "puzzle_1.1.py"
+    spec = importlib.util.spec_from_file_location("puzzle_1_1", puzzle_1_1_file)
+    puzzle_1_1 = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(puzzle_1_1)
+    create_sampling_params = puzzle_1_1.create_sampling_params
 
     # TODO: Ensure input_ids is on CPU if it's not already
     # YOUR CODE HERE

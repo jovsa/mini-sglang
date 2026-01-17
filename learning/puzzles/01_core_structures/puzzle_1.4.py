@@ -15,9 +15,10 @@ CHALLENGE:
 - Handle requests with varying lengths
 
 HINT:
-- Read python/minisgl/core.py lines 69-95
-- Batch has reqs, phase, and padded_reqs
-- padded_reqs may include dummy requests for padding
+- Reference: `python/minisgl/core.py:88-94` for size/padded_size properties
+- Batch.size returns len(reqs) - the actual number of requests
+- Batch.padded_size returns len(padded_reqs) - includes padding requests
+- padded_reqs is set after Batch creation by the scheduler
 
 QUESTIONS:
 1. What's the difference between Batch.size and Batch.padded_size?
@@ -31,9 +32,17 @@ Run: pytest learning/puzzles/01_core_structures/test_1.4.py -v
 from dataclasses import dataclass, field
 from typing import List, Literal
 import sys
+import importlib.util
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent))
-from puzzle_1_2 import Req
+puzzle_dir = Path(__file__).parent
+sys.path.insert(0, str(puzzle_dir))
+
+# Import puzzle file with dot in name using importlib
+puzzle_1_2_file = puzzle_dir / "puzzle_1.2.py"
+spec_1_2 = importlib.util.spec_from_file_location("puzzle_1_2", puzzle_1_2_file)
+puzzle_1_2 = importlib.util.module_from_spec(spec_1_2)
+spec_1_2.loader.exec_module(puzzle_1_2)
+Req = puzzle_1_2.Req
 
 
 @dataclass
@@ -106,7 +115,7 @@ def create_decode_batch(reqs: List[Req]) -> Batch:
 
 # Test your implementation
 if __name__ == "__main__":
-    from puzzle_1_2 import create_req
+    create_req = puzzle_1_2.create_req
     import torch
 
     # Create some test requests

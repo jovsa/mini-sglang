@@ -11,8 +11,9 @@ GIVEN:
 
 CHALLENGE:
 - complete_one() should update cached_len and device_len correctly
-- append_host() should append a token and update device_len
-- Understand the state machine: cached_len tracks processed tokens, device_len tracks current length
+- append_host() should append a token to input_ids (on host/CPU)
+- Note: append_host() does NOT update device_len - only complete_one() does
+- Understand the state machine: cached_len tracks processed tokens, device_len tracks current position
 
 HINT:
 - Read python/minisgl/core.py lines 51-56
@@ -31,10 +32,24 @@ Run: pytest learning/puzzles/01_core_structures/test_1.3.py -v
 import torch
 from dataclasses import dataclass
 import sys
+import importlib.util
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent))
-from puzzle_1_2 import Req, MockCacheHandle
-from puzzle_1_1 import create_sampling_params
+puzzle_dir = Path(__file__).parent
+sys.path.insert(0, str(puzzle_dir))
+
+# Import puzzle files with dots in names using importlib
+puzzle_1_2_file = puzzle_dir / "puzzle_1.2.py"
+spec_1_2 = importlib.util.spec_from_file_location("puzzle_1_2", puzzle_1_2_file)
+puzzle_1_2 = importlib.util.module_from_spec(spec_1_2)
+spec_1_2.loader.exec_module(puzzle_1_2)
+Req = puzzle_1_2.Req
+MockCacheHandle = puzzle_1_2.MockCacheHandle
+
+puzzle_1_1_file = puzzle_dir / "puzzle_1.1.py"
+spec_1_1 = importlib.util.spec_from_file_location("puzzle_1_1", puzzle_1_1_file)
+puzzle_1_1 = importlib.util.module_from_spec(spec_1_1)
+spec_1_1.loader.exec_module(puzzle_1_1)
+create_sampling_params = puzzle_1_1.create_sampling_params
 
 
 class ExtendedReq(Req):
@@ -57,12 +72,14 @@ class ExtendedReq(Req):
 
     def append_host(self, next_token: torch.Tensor) -> None:
         """
-        Append a new token to the input_ids and update device_len.
+        Append a new token to the input_ids (host/CPU side only).
 
         This is called when a new token is generated during decode.
         It should:
-        1. Append next_token to input_ids
-        2. Update device_len to reflect the new length
+        1. Append next_token to input_ids using torch.cat
+
+        NOTE: This does NOT update device_len. The device_len is only
+        updated by complete_one() when a token is actually processed.
 
         HINT: Look at core.py:55-56
         """
@@ -109,5 +126,5 @@ if __name__ == "__main__":
     # Test 2: append_host during decode
     req.append_host(torch.tensor([99], dtype=torch.int32))
     print(f"\nAfter append_host:")
-    print(f"  input_ids length: {len(req.input_ids)} (expected {initial_device_len + 2})")
-    print(f"  device_len: {req.device_len} (expected {initial_device_len + 2})")
+    print(f"  input_ids length: {len(req.input_ids)} (expected 4)")
+    print(f"  device_len: {req.device_len} (expected {initial_device_len + 1}, unchanged by append_host)")

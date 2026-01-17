@@ -7,13 +7,26 @@ Run with: pytest learning/puzzles/01_core_structures/test_1.4.py -v
 import pytest
 import sys
 import torch
+import importlib.util
 from pathlib import Path
 
 puzzle_dir = Path(__file__).parent
 sys.path.insert(0, str(puzzle_dir))
 
-from puzzle_1_4 import create_prefill_batch, create_decode_batch, Batch
-from puzzle_1_2 import create_req
+# Import puzzle files with dots in names using importlib
+puzzle_1_4_file = puzzle_dir / "puzzle_1.4.py"
+spec_1_4 = importlib.util.spec_from_file_location("puzzle_1_4", puzzle_1_4_file)
+puzzle_1_4 = importlib.util.module_from_spec(spec_1_4)
+spec_1_4.loader.exec_module(puzzle_1_4)
+create_prefill_batch = puzzle_1_4.create_prefill_batch
+create_decode_batch = puzzle_1_4.create_decode_batch
+Batch = puzzle_1_4.Batch
+
+puzzle_1_2_file = puzzle_dir / "puzzle_1.2.py"
+spec_1_2 = importlib.util.spec_from_file_location("puzzle_1_2", puzzle_1_2_file)
+puzzle_1_2 = importlib.util.module_from_spec(spec_1_2)
+spec_1_2.loader.exec_module(puzzle_1_2)
+create_req = puzzle_1_2.create_req
 
 
 def test_create_prefill_batch():

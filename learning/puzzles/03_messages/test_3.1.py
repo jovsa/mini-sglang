@@ -7,14 +7,28 @@ Run with: pytest learning/puzzles/03_messages/test_3.1.py -v
 import pytest
 import sys
 import torch
+import importlib.util
 from pathlib import Path
 
 puzzle_dir = Path(__file__).parent
-sys.path.insert(0, str(puzzle_dir))
-sys.path.insert(0, str(puzzle_dir.parent.parent / "01_core_structures"))
 
-from puzzle_3_1 import create_tokenize_msg, create_user_msg, TokenizeMsg, UserMsg
-from puzzle_1_1 import SamplingParams
+# Import puzzle_3.1 using importlib (module name has dot)
+puzzle_3_1_file = puzzle_dir / "puzzle_3.1.py"
+spec_3_1 = importlib.util.spec_from_file_location("puzzle_3_1", puzzle_3_1_file)
+puzzle_3_1 = importlib.util.module_from_spec(spec_3_1)
+spec_3_1.loader.exec_module(puzzle_3_1)
+create_tokenize_msg = puzzle_3_1.create_tokenize_msg
+create_user_msg = puzzle_3_1.create_user_msg
+TokenizeMsg = puzzle_3_1.TokenizeMsg
+UserMsg = puzzle_3_1.UserMsg
+
+# Import puzzle_1.1 using importlib (module name has dot)
+puzzle_1_1_dir = puzzle_dir.parent / "01_core_structures"
+puzzle_1_1_file = puzzle_1_1_dir / "puzzle_1.1.py"
+spec_1_1 = importlib.util.spec_from_file_location("puzzle_1_1", puzzle_1_1_file)
+puzzle_1_1 = importlib.util.module_from_spec(spec_1_1)
+spec_1_1.loader.exec_module(puzzle_1_1)
+SamplingParams = puzzle_1_1.SamplingParams
 
 
 def test_create_tokenize_msg():

@@ -15,8 +15,9 @@ CHALLENGE:
 - Handle edge cases
 
 HINT:
-- Read python/minisgl/core.py lines 14-25
-- is_greedy should return True when temperature <= 0.0 OR (top_k == 1 AND top_p == 1.0)
+- Reference: `python/minisgl/core.py:22-24`
+- is_greedy should return True when (temperature <= 0.0 OR top_k == 1) AND top_p == 1.0
+- Think about why top_p must equal 1.0 for greedy sampling
 
 QUESTIONS:
 1. What happens if temperature=0.0 and top_p=0.5? Is it greedy?
@@ -27,7 +28,7 @@ TEST:
 Run: pytest learning/puzzles/01_core_structures/test_1.1.py -v
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 
@@ -39,21 +40,24 @@ class SamplingParams:
     top_p: float = 1.0
     ignore_eos: bool = False
     max_tokens: int = 1024
+    _is_greedy: bool = False
 
-    # TODO: Implement the is_greedy property
-    # It should return True when sampling is deterministic (greedy)
-    # Hint: Check core.py:22-24 for the logic
+    def __post_init__(self):
+        self._is_greedy = self.temperature <= 0.0 or (self.top_k == 1 and self.top_p == 1.0)
+
     @property
     def is_greedy(self) -> bool:
         """
         Returns True if the sampling parameters result in greedy (deterministic) sampling.
 
         Greedy sampling occurs when:
-        - temperature <= 0.0, OR
-        - top_k == 1 AND top_p == 1.0
+        - temperature <= 0.0 (always greedy, regardless of top_p)
+        - OR (top_k == 1 AND top_p == 1.0)
+
+        Think: Why must top_p == 1.0? Because top_p < 1.0 means nucleus sampling,
+        which introduces randomness even with temperature=0.
         """
-        # YOUR CODE HERE
-        return self.temperature <= 0.0 or (self.top_k == 1 and self.top_p == 1.0)
+        return self._is_greedy
 
 
 def create_sampling_params(
@@ -76,9 +80,8 @@ def create_sampling_params(
     Returns:
         SamplingParams object
     """
-    # TODO: Create and return a SamplingParams object
-    # YOUR CODE HERE
     res = SamplingParams(temperature=temperature, top_k=top_k, top_p=top_p, ignore_eos=ignore_eos, max_tokens=max_tokens)
+
     return res
 
 

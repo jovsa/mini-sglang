@@ -35,11 +35,11 @@ dependencies = [
     "openai",
     "apache-tvm-ffi>=0.1.4",
     "nvidia-cutlass-dsl==4.3.1",
+    "pytest>=6.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=6.0",
     "pytest-cov>=2.0",
     "black>=22.0",
     "flake8>=4.0",
@@ -102,16 +102,14 @@ exclude = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "learning/puzzles"]
 python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = [
     "--strict-markers",
     "--strict-config",
-    "--cov=minisgl",
-    "--cov-report=term-missing",
-    "--cov-report=html",
+    "--import-mode=importlib",
 ]
 
 [tool.mypy]

@@ -6,14 +6,26 @@ Run with: pytest learning/puzzles/02_simple_llm/test_2.1.py -v
 
 import pytest
 import sys
+import importlib.util
 from pathlib import Path
 
 puzzle_dir = Path(__file__).parent
-sys.path.insert(0, str(puzzle_dir))
-sys.path.insert(0, str(puzzle_dir.parent.parent / "01_core_structures"))
 
-from puzzle_2_1 import predict_sampling_behavior, compare_sampling_configs
-from puzzle_1_1 import create_sampling_params
+# Import puzzle_2.1 using importlib (module name has dot)
+puzzle_2_1_file = puzzle_dir / "puzzle_2.1.py"
+spec_2_1 = importlib.util.spec_from_file_location("puzzle_2_1", puzzle_2_1_file)
+puzzle_2_1 = importlib.util.module_from_spec(spec_2_1)
+spec_2_1.loader.exec_module(puzzle_2_1)
+predict_sampling_behavior = puzzle_2_1.predict_sampling_behavior
+compare_sampling_configs = puzzle_2_1.compare_sampling_configs
+
+# Import puzzle_1.1 using importlib (module name has dot)
+puzzle_1_1_dir = puzzle_dir.parent / "01_core_structures"
+puzzle_1_1_file = puzzle_1_1_dir / "puzzle_1.1.py"
+spec_1_1 = importlib.util.spec_from_file_location("puzzle_1_1", puzzle_1_1_file)
+puzzle_1_1 = importlib.util.module_from_spec(spec_1_1)
+spec_1_1.loader.exec_module(puzzle_1_1)
+create_sampling_params = puzzle_1_1.create_sampling_params
 
 
 def test_predict_greedy():
