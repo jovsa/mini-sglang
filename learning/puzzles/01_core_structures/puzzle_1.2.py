@@ -66,22 +66,26 @@ class Req:
         5. Missing validation that device_len <= max_device_len
         """
         # TODO: Fix bug 1 - Check that input_ids is on CPU
-        # YOUR CODE HERE
+        assert self.input_ids.is_cpu
 
         # TODO: Fix bug 2 - Set device_len correctly (should be length of input_ids)
         # YOUR CODE HERE
-        self.device_len = 0  # BUG: This is wrong!
+        self.device_len = len(self.input_ids)
 
         # TODO: Fix bug 3 - Calculate max_device_len correctly
         # max_device_len = input_length + output_length
         # YOUR CODE HERE
-        self.max_device_len = 0  # BUG: This is wrong!
+        self.max_device_len = len(self.input_ids) + self.output_len # BUG: This is wrong!
 
         # TODO: Fix bug 4 - Validate that cached_len < device_len
         # YOUR CODE HERE
+        # When device_len == 0 (empty input), cached_len must also be 0
+        # When device_len > 0, cached_len must be < device_len
+        assert 0 <= self.cached_len and (self.device_len == 0 or self.cached_len < self.device_len)
 
         # TODO: Fix bug 5 - Validate that device_len <= max_device_len
         # YOUR CODE HERE
+        assert self.device_len <= self.max_device_len
 
     @property
     def remain_len(self) -> int:
@@ -130,13 +134,15 @@ def create_req(
 
     # TODO: Ensure input_ids is on CPU if it's not already
     # YOUR CODE HERE
+    if not input_ids.is_cpu:
+        input_ids = input_ids.cpu()
 
     sampling_params = create_sampling_params(max_tokens=output_len)
     cache_handle = MockCacheHandle(cached_len=cached_len)
 
     # TODO: Create and return Req object
     # YOUR CODE HERE
-    pass
+    return Req(input_ids=input_ids, output_len=output_len, uid=uid, cached_len=cached_len, table_idx=table_idx, sampling_params=sampling_params, cache_handle=cache_handle)
 
 
 # Test your implementation
