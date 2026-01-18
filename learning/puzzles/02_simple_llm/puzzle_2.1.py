@@ -59,7 +59,9 @@ def predict_sampling_behavior(params: SamplingParams) -> dict:
         "vocab_size": "full",    # TODO: Predict based on top_k and top_p
     }
 
-    # YOUR CODE HERE
+    result["deterministic"] = params.is_greedy
+    result["diversity"] = "low" if params.is_greedy or params.temperature <= 0.3 else "high" if params.temperature >= 0.8 else "medium"
+    result["vocab_size"] = "full" if (params.top_k == -1 and params.top_p == 1.0) else "very_limited" if params.top_k <= 3 or params.top_p < 0.5 else "limited"
 
     return result
 
