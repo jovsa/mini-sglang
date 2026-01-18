@@ -57,6 +57,9 @@ class Batch:
     # This field should be set by attention backend
     attn_metadata: object = field(init=False)
 
+    def __post_init__(self) -> None:
+        self.padded_reqs = self.reqs
+
     @property
     def is_prefill(self) -> bool:
         """Check if this is a prefill batch."""
@@ -72,14 +75,14 @@ class Batch:
         """Number of real requests in the batch."""
         # TODO: Implement this property
         # YOUR CODE HERE
-        pass
+        return len(self.reqs)
 
     @property
     def padded_size(self) -> int:
         """Total size including padding requests."""
         # TODO: Implement this property
         # YOUR CODE HERE
-        pass
+        return len(self.padded_reqs)
 
 
 def create_prefill_batch(reqs: List[Req]) -> Batch:
@@ -95,7 +98,7 @@ def create_prefill_batch(reqs: List[Req]) -> Batch:
     # TODO: Create a Batch object for prefill phase
     # For now, padded_reqs can be the same as reqs (no padding)
     # YOUR CODE HERE
-    pass
+    return Batch(reqs=reqs, phase="prefill")
 
 
 def create_decode_batch(reqs: List[Req]) -> Batch:
@@ -110,7 +113,7 @@ def create_decode_batch(reqs: List[Req]) -> Batch:
     """
     # TODO: Create a Batch object for decode phase
     # YOUR CODE HERE
-    pass
+    return Batch(reqs=reqs, phase="decode")
 
 
 # Test your implementation
