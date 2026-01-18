@@ -9,7 +9,157 @@ GIVEN:
 - Understanding of tree data structures
 - How prefix caching works in LLM inference
 
-CHALLENGE:
+================================================================================
+DATA FLOW: Prefix Matching Through Radix Tree
+================================================================================
+
+The radix tree enables multiple requests to share common prefixes:
+
+```mermaid
+flowchart TD
+    A[UserMsg arrives] -->|"input_ids: [1,2,3,4,5]"| B[CacheManager.match_req]
+    B -->|"Traverse radix tree"| C[RadixTree]
+    C -->|"Match prefix [1,2,3]"| D[Found node at depth 3]
+    D -->|"cached_len=3"| E[Create CacheHandle]
+    E -->|"cached_len=3"| F[Create Req]
+    F -->|"Only process [4,5]"| G[Save computation]
+    G -->|"New request with [1,2,3,6,7]"| H[Match same prefix]
+    H -->|"Share cache for [1,2,3]"| I[Reuse KV cache]
+```
+
+Step-by-step flow:
+1. **CacheManager.match_req()** (`python/minisgl/kvcache/radix_manager.py:82-120`):
+   - Takes `input_ids` from UserMsg
+   - Traverses radix tree starting from root
+   - Matches longest common prefix
+   - Returns `CacheHandle` with `cached_len` = length of matched prefix
+
+2. **Radix Tree Traversal**:
+   - Start at root node
+   - For each token in `input_ids`, follow child node
+   - Stop when no matching child found
+   - Return deepest matching node
+
+3. **Prefix Sharing**:
+   - Multiple requests with same prefix share the same cache node
+   - `ref_count` tracks how many requests use this node
+   - Node is protected (can't evict) as long as `ref_count > 0`
+
+4. **Cache Efficiency**:
+   - If prefix matches, only new tokens need processing
+   - KV cache for prefix is reused across requests
+   - Saves computation and memory
+
+**Example**:
+- Request 1: `[1, 2, 3, 4, 5]` → Matches prefix `[1, 2, 3]` (cached_len=3)
+- Request 2: `[1, 2, 3, 6, 7]` → Matches same prefix `[1, 2, 3]` (cached_len=3)
+- Both requests share KV cache for tokens `[1, 2, 3]`
+- Only process new tokens: Request 1 processes `[4, 5]`, Request 2 processes `[6, 7]`
+
+================================================================================
+COMPONENT CONNECTIONS: Radix Tree to Cache Memory
+================================================================================
+
+```mermaid
+graph TB
+    subgraph "Request Layer"
+        Req1[Req 1: 1,2,3,4,5]
+        Req2[Req 2: 1,2,3,6,7]
+    end
+    
+    subgraph "Radix Tree"
+        Root[Root Node]
+        N1[Node: token=1]
+        N2[Node: token=2]
+        N3[Node: token=3]
+        N4[Node: token=4]
+        N6[Node: token=6]
+    end
+    
+    subgraph "Cache Memory"
+        Cache1[Cache for 1,2,3]
+        Cache2[Cache for 4]
+        Cache3[Cache for 6]
+    end
+    
+    Req1 -->|"Match prefix"| Root
+    Req2 -->|"Match prefix"| Root
+    Root -->|"child[1]"| N1
+    N1 -->|"child[2]"| N2
+    N2 -->|"child[3]"| N3
+    N3 -->|"Points to"| Cache1
+    N3 -->|"child[4]"| N4
+    N3 -->|"child[6]"| N6
+    N4 -->|"Points to"| Cache2
+    N6 -->|"Points to"| Cache3
+    Cache1 -->|"Shared by"| Req1
+    Cache1 -->|"Shared by"| Req2
+```
+
+Key Connections:
+- **Tree Structure**: Each node represents a token position in the sequence
+- **Shared Prefix**: Multiple requests share nodes for common prefixes
+- **Cache Mapping**: Each node maps to physical cache memory pages
+- **Reference Counting**: `ref_count` tracks how many requests use each node
+
+================================================================================
+TECHNICAL DECISIONS: Why Radix Tree vs Simple Prefix Matching
+================================================================================
+
+**Decision**: Use radix tree for prefix matching instead of simple prefix comparison.
+
+**Why?**
+1. **Efficiency**:
+   - **Simple matching**: O(n*m) - compare each request against all cached prefixes
+   - **Radix tree**: O(n) - single tree traversal to find longest match
+   - Much faster for many requests with overlapping prefixes
+
+2. **Memory Efficiency**:
+   - Radix tree compresses common prefixes
+   - Multiple requests share the same tree nodes
+   - Reduces memory overhead compared to storing all prefixes separately
+
+3. **Scalability**:
+   - Tree structure scales well with number of unique prefixes
+   - Adding new prefixes is O(depth) - typically much less than total cache size
+   - Efficient for systems with many concurrent requests
+
+**Alternative Considered**: Simple prefix matching (compare against all cached sequences).
+   - **Problem**: O(n*m) complexity - slow with many requests
+   - **Problem**: No structure for efficient lookup
+   - **Chosen**: Radix tree for better performance and scalability
+
+**Why Prefix Matching is Important**:
+1. **Common Scenarios**: Many requests share common prefixes
+   - System prompts (same for all requests)
+   - Few-shot examples (repeated across requests)
+   - Conversation history (shared context)
+
+2. **Performance**: Reusing cached KV saves computation
+   - Attention over cached tokens is already computed
+   - Only need to compute attention for new tokens
+   - Significant speedup for long shared prefixes
+
+3. **Memory**: Sharing cache reduces memory usage
+   - One cache entry serves multiple requests
+   - Enables more concurrent requests with same memory
+
+**ref_count Mechanism**:
+- Each node tracks `ref_count` (number of requests using it)
+- When request starts: Increment ref_count for all nodes in matched path
+- When request completes: Decrement ref_count for all nodes in path
+- When ref_count reaches 0: Node becomes evictable (can be freed)
+
+**When Node is Split**:
+- Radix tree nodes can be split when requests diverge
+- Example: `[1,2,3,4]` and `[1,2,3,5]` share prefix `[1,2,3]`
+- Node at position 3 has two children: one for token 4, one for token 5
+- This enables fine-grained prefix sharing
+
+================================================================================
+CHALLENGE
+================================================================================
+
 - Implement is_root() - check if node has no parent
 - Implement is_leaf() - check if node has no children
 - Implement add_child() - add a child node
@@ -25,6 +175,10 @@ QUESTIONS:
 1. Why is prefix matching important for LLM inference?
 2. What does ref_count == 0 mean for a node?
 3. When would a node be split in a radix tree?
+4. **NEW**: Trace through the code: How does `CacheManager.match_req()` traverse the radix tree?
+   (Hint: Read `python/minisgl/kvcache/radix_manager.py:82-120`)
+5. **NEW**: What happens when two requests have different prefixes? How does the tree handle this?
+   (Hint: Tree branches at the first differing token)
 
 TEST:
 Run: pytest learning/puzzles/04_kvcache/test_4.2.py -v

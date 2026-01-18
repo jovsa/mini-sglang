@@ -8,7 +8,130 @@ GIVEN:
 - Partial Req implementation with bugs
 - Understanding of what Req should do
 
-CHALLENGE:
+================================================================================
+DATA FLOW: From UserMsg to Req to PrefillManager
+================================================================================
+
+Req is created when the Scheduler receives a UserMsg. Here's the complete flow:
+
+```mermaid
+flowchart TD
+    A[UserMsg arrives] -->|"ZMQ message"| B[Scheduler._process_one_msg]
+    B -->|"Validate input_len"| C{Input too long?}
+    C -->|"Yes"| D[Drop request]
+    C -->|"No"| E[Adjust max_tokens]
+    E -->|"Call"| F[PrefillManager.add_one_req]
+    F -->|"Allocate cache"| G[CacheManager.match_req]
+    G -->|"Allocate slot"| H[TableManager.allocate]
+    H -->|"Create"| I[Req.__post_init__]
+    I -->|"Validate"| J[Req created]
+    J -->|"Add to"| K[PrefillManager.runnable_reqs]
+```
+
+Step-by-step flow:
+1. **Scheduler receives UserMsg** (`python/minisgl/scheduler/scheduler.py:161-175`):
+   - Validates input length against `engine.max_seq_len`
+   - Adjusts `max_tokens` if needed
+   - Calls `prefill_manager.add_one_req(msg)`
+
+2. **PrefillManager.add_one_req()** (`python/minisgl/scheduler/prefill.py:63-100`):
+   - Allocates cache handle via `CacheManager.match_req()` (may find prefix match)
+   - Allocates table slot via `TableManager.allocate()`
+   - Creates Req with `cached_len` from cache handle (0 for new, >0 for prefix match)
+   - Sets `device_len = len(input_ids)` and `max_device_len = len(input_ids) + output_len`
+
+3. **Req.__post_init__()** (`python/minisgl/core.py:37-41`):
+   - Validates `input_ids.is_cpu` (critical for ZMQ serialization)
+   - Validates state invariants: `0 <= cached_len < device_len <= max_device_len`
+   - Initializes `device_len` and `max_device_len` properties
+
+**Key State Variables:**
+- `cached_len`: Number of tokens already processed and cached (from KV cache)
+- `device_len`: Current position in sequence (length of input_ids processed so far)
+- `max_device_len`: Maximum sequence length (input + max output tokens)
+
+================================================================================
+COMPONENT CONNECTIONS: How Req Connects to System Components
+================================================================================
+
+```mermaid
+graph TB
+    subgraph "Message Layer"
+        UMsg[UserMsg]
+    end
+    
+    subgraph "Scheduler Components"
+        Sched[Scheduler]
+        PrefillMgr[PrefillManager]
+        CacheMgr[CacheManager]
+        TableMgr[TableManager]
+    end
+    
+    subgraph "Request State"
+        Req[Req]
+    end
+    
+    subgraph "Storage"
+        TokenPool[token_pool]
+        PageTable[page_table]
+        KVCache[KV Cache Memory]
+    end
+    
+    UMsg -->|"input_ids, sampling_params"| Sched
+    Sched -->|"add_one_req"| PrefillMgr
+    PrefillMgr -->|"match_req"| CacheMgr
+    PrefillMgr -->|"allocate"| TableMgr
+    CacheMgr -->|"cache_handle"| Req
+    TableMgr -->|"table_idx"| Req
+    Req -->|"table_idx"| TokenPool
+    Req -->|"table_idx"| PageTable
+    Req -->|"cache_handle"| KVCache
+    Req -->|"Stored in"| PrefillMgr
+```
+
+Key Connections:
+- **TableManager**: Allocates `table_idx` which maps Req to fixed-size slots in `token_pool` and `page_table`
+- **CacheManager**: Provides `cache_handle` which connects Req to KV cache memory pages
+- **PrefillManager**: Stores Req in `runnable_reqs` until it can be batched
+
+================================================================================
+TECHNICAL DECISIONS: Why input_ids Must Be a CPU Tensor
+================================================================================
+
+**Decision**: Req.input_ids must be a CPU tensor, not a GPU tensor.
+
+**Why?**
+1. **ZMQ Serialization**: UserMsg crosses process boundaries via ZeroMQ. GPU tensors cannot be 
+   serialized directly - they must be moved to CPU first. See `python/minisgl/message/backend.py:35`
+   where `input_ids` is explicitly a CPU tensor.
+
+2. **Process Isolation**: API Server, Tokenizer, and Scheduler run in separate processes. GPU memory
+   is not shared across processes, so tensors must be on CPU to cross boundaries.
+
+3. **Lazy GPU Transfer**: The tensor is moved to GPU only when needed (during Batch creation in
+   `Scheduler._prepare_batch()`). This defers GPU memory allocation until batching, allowing better
+   memory management.
+
+4. **Validation Safety**: The assertion `assert self.input_ids.is_cpu` in `__post_init__` ensures
+   this invariant is maintained. If a GPU tensor somehow reaches Req creation, it will fail fast.
+
+**Alternative Considered**: Keep tensors on GPU throughout.
+   - **Problem**: Cannot serialize GPU tensors for ZMQ messages
+   - **Problem**: GPU memory allocated too early (before batching decisions)
+   - **Chosen**: CPU-first approach for flexibility and correctness
+
+**Real Impact**: This design allows the scheduler to queue many requests in CPU memory, then batch
+   them efficiently before moving to GPU. This is critical for high-throughput serving.
+
+**Why the State Invariants?**
+- `cached_len < device_len`: You can't have cached more tokens than you've processed
+- `device_len <= max_device_len`: You can't exceed the maximum sequence length
+- These invariants ensure the request state is always valid and prevent buffer overflows
+
+================================================================================
+CHALLENGE
+================================================================================
+
 - Fix wrong cached_len value
 - Add missing validation
 - Understand the relationship between cached_len, device_len, and max_device_len
@@ -23,6 +146,10 @@ QUESTIONS:
 1. What happens if cached_len >= device_len? Why is this invalid?
 2. What's the difference between device_len and max_device_len?
 3. Why does input_ids need to be a CPU tensor?
+4. **NEW**: Trace through the code: What happens if `input_ids` is a GPU tensor when creating Req?
+   (Hint: Check `__post_init__` validation)
+5. **NEW**: How does `cached_len` get set when a request matches a prefix in the radix tree?
+   (Hint: Read `python/minisgl/scheduler/prefill.py:42-43`)
 
 TEST:
 Run: pytest learning/puzzles/01_core_structures/test_1.2.py -v

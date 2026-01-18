@@ -9,7 +9,132 @@ GIVEN:
 - Req class structure
 - Understanding of request lifecycle: prefill → decode → completion
 
-CHALLENGE:
+================================================================================
+DATA FLOW: Request State Transitions Through Prefill and Decode
+================================================================================
+
+Req transitions through distinct phases with different state update patterns:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Prefill: UserMsg received
+    Prefill --> ProcessingPrefill: Batch created
+    ProcessingPrefill --> ProcessingPrefill: complete_one() called
+    ProcessingPrefill --> Decode: All input processed
+    Decode --> ProcessingDecode: Batch created
+    ProcessingDecode --> AppendToken: append_host(next_token)
+    AppendToken --> ProcessingDecode: complete_one() called
+    ProcessingDecode --> ProcessingDecode: More tokens needed
+    ProcessingDecode --> Complete: max_tokens reached or EOS
+    Complete --> [*]
+```
+
+Detailed flow for each phase:
+
+**Prefill Phase** (`python/minisgl/scheduler/scheduler.py:180-220`):
+1. Req created with `cached_len=0`, `device_len=len(input_ids)`
+2. Batch created with multiple Reqs (different lengths, padded)
+3. Engine processes batch: `Engine.forward()` → `complete_one()` for each token
+4. After prefill: `cached_len == device_len == len(input_ids)` (all input processed)
+5. Req moves to DecodeManager: `decode_manager.add_reqs(batch.reqs)`
+
+**Decode Phase** (`python/minisgl/scheduler/scheduler.py:222-223`):
+1. DecodeManager creates batch (all sequences length 1)
+2. Engine generates `next_token` via sampling
+3. **append_host(next_token)**: Adds token to `input_ids` (CPU side, doesn't update device_len)
+4. **complete_one()**: Marks token as processed, increments `device_len`
+5. Repeat until `remain_len == 0` or EOS token
+
+**State Variables During Transitions:**
+- `cached_len`: Tracks tokens that are processed AND cached in KV cache
+- `device_len`: Tracks current processing position (always >= cached_len)
+- `input_ids`: Grows during decode as tokens are appended
+
+================================================================================
+COMPONENT CONNECTIONS: How State Transitions Connect Managers
+================================================================================
+
+```mermaid
+graph LR
+    subgraph "Prefill Phase"
+        PM[PrefillManager]
+        Batch1[Batch phase=prefill]
+        Engine1[Engine.forward]
+    end
+    
+    subgraph "State Updates"
+        CO[complete_one]
+        AH[append_host]
+    end
+    
+    subgraph "Decode Phase"
+        DM[DecodeManager]
+        Batch2[Batch phase=decode]
+        Engine2[Engine.forward]
+    end
+    
+    PM -->|"schedule_next_batch"| Batch1
+    Batch1 -->|"Contains Reqs"| Engine1
+    Engine1 -->|"For each token"| CO
+    CO -->|"Updates cached_len, device_len"| Req
+    Req -->|"cached_len == device_len"| DM
+    DM -->|"schedule_next_batch"| Batch2
+    Batch2 -->|"Contains Reqs"| Engine2
+    Engine2 -->|"Generates next_token"| AH
+    AH -->|"Appends to input_ids"| Req
+    Engine2 -->|"After append"| CO
+```
+
+Key Connections:
+- **PrefillManager → DecodeManager**: Req transitions when `cached_len == device_len` (all input processed)
+- **Engine.forward()**: Calls `complete_one()` after processing each token position
+- **Scheduler**: Calls `append_host()` after sampling, then `complete_one()` after processing
+
+================================================================================
+TECHNICAL DECISIONS: Why Separate append_host() and complete_one()
+================================================================================
+
+**Decision**: Separate `append_host()` (CPU-side append) from `complete_one()` (GPU-side processing).
+
+**Why?**
+1. **Separation of Concerns**: 
+   - `append_host()`: CPU-side operation, updates `input_ids` tensor (CPU)
+   - `complete_one()`: GPU-side operation, marks token as processed after forward pass
+   - These happen at different times in the pipeline
+
+2. **Timing**: 
+   - `append_host()` is called immediately after sampling (token generated)
+   - `complete_one()` is called after the forward pass processes that token
+   - They're not the same operation!
+
+3. **State Consistency**:
+   - `device_len` only increases when a token is actually processed (GPU forward pass)
+   - `input_ids` grows when token is generated (CPU append)
+   - This separation prevents race conditions and maintains invariants
+
+**Alternative Considered**: Single method that does both.
+   - **Problem**: Breaks separation - CPU append and GPU processing are different operations
+   - **Problem**: Timing issues - can't update device_len until GPU processing completes
+   - **Chosen**: Two-method approach for clarity and correctness
+
+**Real Impact**: This design allows the scheduler to:
+- Queue tokens on CPU (`append_host`) without waiting for GPU
+- Track processing progress separately (`complete_one`) after GPU work
+- Maintain correct state even with async GPU operations
+
+**Why cached_len vs device_len?**
+- `cached_len`: Tokens that are in KV cache (persistent across batches)
+- `device_len`: Current processing position (may be ahead of cached_len during prefill)
+- During prefill: `cached_len < device_len` (processing but not all cached yet)
+- During decode: `cached_len == device_len` (each token cached immediately after processing)
+
+**Transition to Decode**: When `cached_len == device_len == len(input_ids)`, all input tokens are
+   processed. The request can now move to decode phase where it generates new tokens.
+
+================================================================================
+CHALLENGE
+================================================================================
+
 - complete_one() should update cached_len and device_len correctly
 - append_host() should append a token to input_ids (on host/CPU)
 - Note: append_host() does NOT update device_len - only complete_one() does
@@ -24,6 +149,10 @@ QUESTIONS:
 1. What's the difference between cached_len and device_len?
 2. When is complete_one() called vs append_host()?
 3. How does the request transition from prefill to decode?
+4. **NEW**: Trace through the code: When does `cached_len == device_len` first become true?
+   (Hint: This marks the transition from prefill to decode)
+5. **NEW**: Why can't we update `device_len` in `append_host()`? What would break?
+   (Hint: Think about when append_host is called vs when the token is actually processed)
 
 TEST:
 Run: pytest learning/puzzles/01_core_structures/test_1.3.py -v
