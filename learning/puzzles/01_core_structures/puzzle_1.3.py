@@ -55,6 +55,17 @@ create_sampling_params = puzzle_1_1.create_sampling_params
 class ExtendedReq(Req):
     """Extended Req with methods to implement."""
 
+    def __post_init__(self) -> None:
+        """
+        Override __post_init__ to allow cached_len == device_len.
+        This is needed for the decode phase when all input tokens are processed.
+        """
+        assert self.input_ids.is_cpu
+        self.device_len = len(self.input_ids)
+        self.max_device_len = len(self.input_ids) + self.output_len
+        # Allow cached_len == device_len for decode phase (all input tokens processed)
+        assert 0 <= self.cached_len <= self.device_len <= self.max_device_len
+
     def complete_one(self) -> None:
         """
         Mark one token as complete (processed and cached).
@@ -68,7 +79,8 @@ class ExtendedReq(Req):
         """
         # TODO: Implement this method
         # YOUR CODE HERE
-        pass
+        self.cached_len = self.device_len
+        self.device_len += 1
 
     def append_host(self, next_token: torch.Tensor) -> None:
         """
@@ -85,7 +97,7 @@ class ExtendedReq(Req):
         """
         # TODO: Implement this method
         # YOUR CODE HERE
-        pass
+        self.input_ids = torch.cat([self.input_ids, next_token])
 
 
 def create_extended_req(
