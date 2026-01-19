@@ -250,6 +250,8 @@ def trace_zmq_serialization(user_msg: "UserMsg") -> dict:
     # Step 5: Deserialize dict back to UserMsg
     #   - Use _deserialize_type() to reconstruct UserMsg
     #   - This matches the pattern in python/minisgl/message/utils.py:52-69
+    #   - Need cls_map to map type names to classes
+    cls_map = {"UserMsg": type(user_msg), "SamplingParams": type(user_msg.sampling_params)}
     deserialized_msg = _deserialize_type(cls_map, decoded_dict)
 
     # Step 6: Verify deserialized message
