@@ -315,7 +315,7 @@ def test_cpu_tensor_requirement_enforced():
 def test_trace_message_flow():
     """
     Test trace_message_flow function that traces complete message flow.
-    
+
     This verifies that trace_message_flow correctly:
     1. Extracts data from TokenizeMsg
     2. Simulates tokenization
@@ -328,19 +328,19 @@ def test_trace_message_flow():
     original_text = "Hello, world!"
     original_max_tokens = 200
     original_temperature = 0.8
-    
+
     tokenize_msg = create_tokenize_msg(
         uid=original_uid,
         text=original_text,
         max_tokens=original_max_tokens
     )
-    
+
     # Step 2: Call trace_message_flow
     flow_result = trace_message_flow(tokenize_msg)
-    
+
     # Step 3: Verify return structure
     assert isinstance(flow_result, dict), "trace_message_flow should return a dictionary"
-    
+
     # Verify all expected keys are present
     expected_keys = [
         "step1_tokenize_msg",
@@ -351,28 +351,28 @@ def test_trace_message_flow():
     ]
     for key in expected_keys:
         assert key in flow_result, f"flow_result should contain '{key}'"
-    
+
     # Step 4: Verify step1_tokenize_msg
     assert flow_result["step1_tokenize_msg"] == tokenize_msg
     assert flow_result["step1_tokenize_msg"].uid == original_uid
     assert flow_result["step1_tokenize_msg"].text == original_text
-    
+
     # Step 5: Verify step2_tokenized (tokenized input)
     input_ids = flow_result["step2_tokenized"]
     assert isinstance(input_ids, torch.Tensor), "step2_tokenized should be a torch.Tensor"
     assert len(input_ids) > 0, "Tokenization should produce at least one token"
-    
+
     # Step 6: Verify step3_user_msg
     user_msg = flow_result["step3_user_msg"]
     assert isinstance(user_msg, UserMsg), "step3_user_msg should be a UserMsg"
     assert user_msg.uid == original_uid, "UID should be preserved"
     assert torch.equal(user_msg.input_ids, input_ids), "input_ids should match tokenized result"
     assert user_msg.input_ids.is_cpu, "input_ids should be on CPU"
-    
+
     # Step 7: Verify data preservation flags
     assert flow_result["uid_preserved"] == True, "UID should be preserved through flow"
     assert flow_result["sampling_params_preserved"] == True, "SamplingParams should be preserved through flow"
-    
+
     # Step 8: Verify SamplingParams preservation in detail
     assert user_msg.sampling_params.max_tokens == original_max_tokens
     assert user_msg.sampling_params.max_tokens == tokenize_msg.sampling_params.max_tokens
